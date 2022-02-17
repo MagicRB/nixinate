@@ -6,12 +6,12 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "narHash": "sha256-OsFQxO7h4YHrRQX8oHIjvgjTbeJx0oIP+pOIpfiwMiU=",
-        "path": "./examples",
+        "narHash": "sha256-1iruH96Aame+4NAAwSwVZAbHzfnKxhMLjgoVvJar6ls=",
+        "path": "examples",
         "type": "path"
       },
       "original": {
-        "path": "./examples",
+        "path": "examples",
         "type": "path"
       }
     },

@@ -1,7 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-21.11";
-    nixinate.url = "path:///etc/nixos/nixinate";
+    nixinate.url = "path:..";
   };
 
   outputs = { self, nixpkgs, nixinate }: {

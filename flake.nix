@@ -2,7 +2,7 @@
   description = "Nixinate your systems 🕶️";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    examples.url = "path:./examples";
+    examples.url = "path:examples";
   };
   outputs = { self, nixpkgs, examples, ... }:
     let
