@@ -25,7 +25,8 @@
           let
             machines = builtins.attrNames flake.nixosConfigurations;
             validMachines = final.lib.remove "" (final.lib.forEach machines (x: final.lib.optionalString (flake.nixosConfigurations."${x}"._module.args ? nixinate) "${x}" ));
-            mkDeployScript = { machine, dryRun }: let
+            inherit (final) writeShellScript;
+            mkDeployScript = { machine }: let
               inherit (builtins) abort;
               inherit (final.lib) getExe optionalString concatStringsSep;
               nix = "${getExe final.nix}";
@@ -40,11 +41,16 @@
               where = n.buildOn or "remote";
               remote = if where == "remote" then true else if where == "local" then false else abort "_module.args.nixinate.buildOn is not set to a valid value of 'local' or 'remote'";
               substituteOnTarget = n.substituteOnTarget or false;
-              switch = if dryRun then "dry-activate" else "switch";
               nixOptions = concatStringsSep " " (n.nixOptions or []);
 
               script =
               ''
+                if (( $# < 1 )); then
+                  >&2 echo "Invalid number of arguments."
+                  exit 1
+                fi
+                _action=$1
+
                 set -e
                 echo "🚀 Deploying nixosConfigurations.${machine} from ${flake}"
                 echo "👤 SSH User: ${user}"
@@ -55,44 +61,49 @@
               '' + (if hermetic then ''
                 echo "🤞 Activating configuration hermetically on ${machine} via ssh:"
                 ( set -x; ${nix} ${nixOptions} copy --derivation ${nixos-rebuild} ${flock} --to ssh://${user}@${host} )
-                ( set -x; ${openssh} -t ${user}@${host} "sudo nix-store --realise ${nixos-rebuild} ${flock} && sudo ${flock} -w 60 /dev/shm/nixinate-${machine} ${nixos-rebuild} ${nixOptions} ${switch} --flake ${flake}#${machine}" )
+                ( set -x; ${openssh} -t ${user}@${host} "sudo nix-store --realise ${nixos-rebuild} ${flock} && sudo ${flock} -w 60 /dev/shm/nixinate-${machine} ${nixos-rebuild} ${nixOptions} $_action --flake ${flake}#${machine}" )
               '' else ''
                 echo "🤞 Activating configuration non-hermetically on ${machine} via ssh:"
-                ( set -x; ${openssh} -t ${user}@${host} "sudo flock -w 60 /dev/shm/nixinate-${machine} nixos-rebuild ${switch} --flake ${flake}#${machine}" )
+                ( set -x; ${openssh} -t ${user}@${host} "sudo flock -w 60 /dev/shm/nixinate-${machine} nixos-rebuild $_action --flake ${flake}#${machine}" )
               '')
               else ''
                 echo "🔨 Building system closure locally, copying it to remote store and activating it:"
-                ( set -x; NIX_SSHOPTS="-t" ${flock} -w 60 /dev/shm/nixinate-${machine} ${nixos-rebuild} ${nixOptions} ${switch} --flake ${flake}#${machine} --target-host ${user}@${host} --use-remote-sudo ${optionalString substituteOnTarget "-s"} )
+                ( set -x; NIX_SSHOPTS="-t" ${flock} -w 60 /dev/shm/nixinate-${machine} ${nixos-rebuild} ${nixOptions} $_action --flake ${flake}#${machine} --target-host ${user}@${host} --use-remote-sudo ${optionalString substituteOnTarget "-s"} )
 
               '');
             in final.writeScript "deploy-${machine}.sh" script;
+            toplevelApp =
+              (writeShellScript "nixinate" ''
+                if (( $# < 2 )); then
+                  >&2 echo "Invalid number of arguments."
+                  exit 1
+                fi
+
+                _host=$1
+                _action=$2
+                shift 2
+
+                exec nix run .#apps.${final.stdenv.system}.nixinate.drv.machines.$_host -- $_action "$@"
+              '') //
+              {
+                machines = nixpkgs.lib.genAttrs
+                  validMachines
+                  (x:
+                    {
+                      type = "app";
+                      program = toString (mkDeployScript {
+                        machine = x;
+                      });
+                    }
+                  );
+              };
           in
           {
-             nixinate =
-               (
-                 nixpkgs.lib.genAttrs
-                   validMachines
-                   (x:
-                     {
-                       type = "app";
-                       program = toString (mkDeployScript {
-                         machine = x;
-                         dryRun = false;
-                       });
-                     }
-                   )
-                   // nixpkgs.lib.genAttrs
-                      (map (a: a + "-dry-run") validMachines)
-                      (x:
-                        {
-                          type = "app";
-                          program = toString (mkDeployScript {
-                            machine = nixpkgs.lib.removeSuffix "-dry-run" x;
-                            dryRun = true;
-                          });
-                        }
-                      )
-               );
+            nixinate = {
+              type = "app";
+              program = toString toplevelApp;
+              drv = toplevelApp;
+            };
           };
         };
       nixinate = forAllSystems (system: pkgs: nixpkgsFor.${system}.generateApps);
